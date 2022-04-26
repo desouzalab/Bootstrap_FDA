@@ -1,0 +1,793 @@
+---
+title: "Thesis"
+author: "Liam Bullen"
+date: "30/11/2021"
+output: html_document
+---
+
+Defining Data Simulation Functions
+```{r}
+library(fda)
+#Defining data simulator for Function 1
+curve <- function(par, m){
+  t <- seq(0, 1, len = m)
+  dat <- rep(0, m)
+  for (i in 1:m){
+  dat[i] <- 2-par*t[i]+par*exp(-100*(t[i]-0.5)^2)+rnorm(1, sd = 0.25)
+  }
+  dat
+  }
+#Defining simulator with random effects for Function 1
+curve_cov <- function(par, m){
+  t <- seq(0, 1, len = m)
+  dat <- rep(0, m)
+  for (i in 1:m){
+  dat[i] <- 2-par*t[i]+par*exp(-100*(t[i]-0.5)^2)+rnorm(1, sd = 1)+ rnorm(1, sd = 0.25)
+  }
+  dat
+}  
+#Defining simulator for Function 2
+curve_2 <- function(par, m){
+  t <- seq(0.01, 1, len = m)
+  dat <- rep(0, m)
+  for (i in 1:m){
+  dat[i] <- par*0.4*((par*t[i])^(-0.6))*exp(-(par*t[i])^0.4) + rnorm(1, sd = 0.25)
+  }
+  dat
+} 
+#Defining simulator with random effects for Function 2
+curve_cov_2 <- function(par, m, a){
+  t <- seq(0.01, 1, len = m)
+  dat <- rep(0, m)
+  for (i in 1:m){
+  dat[i] <- par*0.4*((par*t[i])^(-0.6))*exp(-(par*t[i])^0.4)+rnorm(1, sd = a) + rnorm(1, sd = 0.25)
+  }
+  dat
+} 
+#Defining Cubic Spline smoothing function
+Smoothing <- function(x, lam){
+  knots <- t <- seq(0, 1, len = length(x))
+  basis <- create.bspline.basis(c(min(t), max(t)), nbasis = length(t)+2)
+  Lfd <- int2Lfd(2)
+  lambda <- lam
+  Par <- fdPar(basis, Lfd, lambda)
+  smooth <- smooth.basis(argvals = t, y = x, fdParobj = Par)
+  smooth
+  }
+```
+
+
+Sample Curves of Function 1
+```{r}
+#Generate random base curve, par = 5 Function 1
+t <- seq(0.01, 1, len = 100)
+x <- curve(5, 100)
+x.smooth <- Smoothing(x, 1e-5)
+plot(x.smooth, xlab = "x", col = "gray")
+curves.x <- data.frame(matrix(nrow = 100, ncol = 100))
+for (i in 1:100){
+x <- curve(5, 100)
+x.smooth <- Smoothing(x, 1e-5)
+lines(x.smooth, col ="gray")
+curves.x[,i] <- eval.fd(t, x.smooth$fd)
+}
+#Find mean curve
+mean.curve.x <- apply(curves.x, MARGIN = 1, mean)
+lines(cbind(t, mean.curve.x), lwd = 2)
+legend("bottomleft",  c("Curve Samples", "Mean Curve"), col = c("gray", "black"), cex = 0.7, lty = 1)
+```
+
+Sample Curve of Function 2
+```{r}
+#Generate random base curve, par = 5 Function 1
+t <- seq(0.01, 1, len = 100)
+x <- curve_2(5, 100)
+x.smooth <- Smoothing(x, 1e-5)
+plot(x.smooth, xlab = "x", col = "gray")
+curves.x <- data.frame(matrix(nrow = 100, ncol = 100))
+for (i in 1:100){
+x <- curve_2(5, 100)
+x.smooth <- Smoothing(x, 1e-5)
+lines(x.smooth, col ="gray")
+curves.x[,i] <- eval.fd(t, x.smooth$fd)
+}
+#Find mean curve
+mean.curve.x <- apply(curves.x, MARGIN = 1, mean)
+lines(cbind(t, mean.curve.x), lwd = 2)
+legend("bottomleft",  c("Curve Samples", "Mean Curve"), col = c("gray", "black"), cex = 0.7, lty = 1)
+```
+
+Defining Bootstrap Functions
+```{r}
+Bootstrap_L1 <- function(curves.x, curves.y, B, R, n1, n2){
+n <- n1+n2
+#Mean Curve and Transformation
+mean.curve.x <- apply(curves.x, MARGIN = 1, mean)
+t.mean.x <- (mean.curve.x*mean.curve.x)/sum((mean.curve.x*mean.curve.x)*0.01)
+
+mean.curve.y <- apply(curves.y, MARGIN = 1, mean)
+t.mean.y <- (mean.curve.y*mean.curve.y)/sum((mean.curve.y*mean.curve.y)*0.01)
+
+curves <- append(curves.x, curves.y)
+
+#Build Statistic
+L1 <- sum(abs(t.mean.x-t.mean.y))*0.01
+L1.star <- rep(0, B)
+
+for (i in 1:B){
+#Create bootstrap samples and mean curves
+index <- sample(1:n, n, rep = T)
+x.star <- curves[index[1:n1]]
+y.star <- curves[index[n1:n]]
+x.star.mean <- apply(data.frame(x.star), MARGIN = 1, mean)
+y.star.mean <- apply(data.frame(y.star), MARGIN = 1, mean)
+t.x.star <- (x.star.mean*x.star.mean)/sum((x.star.mean*x.star.mean)*0.01)
+t.y.star <- (y.star.mean*y.star.mean)/sum((y.star.mean*y.star.mean)*0.01)
+
+#Compute test statistic star
+L1.star[i] <- sum(abs(t.x.star-t.y.star))*0.01
+}
+#Find p-value
+p.L1 <- (sum(L1.star > L1)+1)/(B+1)
+p.L1
+}
+
+Bootstrap_ISD <- function(curves.x, curves.y, B, R, n1, n2){
+n <- n1+n2
+#Mean Curve and Transformation
+mean.curve.x <- apply(curves.x, MARGIN = 1, mean)
+t.mean.x <- (mean.curve.x*mean.curve.x)/sum((mean.curve.x*mean.curve.x)*0.01)
+
+mean.curve.y <- apply(curves.y, MARGIN = 1, mean)
+t.mean.y <- (mean.curve.y*mean.curve.y)/sum((mean.curve.y*mean.curve.y)*0.01)
+
+curves <- append(curves.x, curves.y)
+
+#Build Statistic
+ISD <- sum((t.mean.x-t.mean.y)^2)*0.01
+ISD.star <- rep(0, B)
+
+for (i in 1:B){
+#Create bootstrap samples and mean curves
+index <- sample(1:n, n, rep = T)
+x.star <- curves[index[1:n1]]
+y.star <- curves[index[n1:n]]
+x.star.mean <- apply(data.frame(x.star), MARGIN = 1, mean)
+y.star.mean <- apply(data.frame(y.star), MARGIN = 1, mean)
+t.x.star <- (x.star.mean*x.star.mean)/sum((x.star.mean*x.star.mean)*0.01)
+t.y.star <- (y.star.mean*y.star.mean)/sum((y.star.mean*y.star.mean)*0.01)
+
+#Compute test statistic star
+ISD.star[i] <- sum((t.x.star-t.y.star)^2)*0.01
+}
+#Find p-value
+p.ISD <- (sum(ISD.star > ISD)+1)/(B+1)
+p.ISD
+}
+
+Bootstrap_KL <- function(curves.x, curves.y, B, R, n1, n2){
+n <- n1+n2
+#Mean Curve and Transformation
+mean.curve.x <- apply(curves.x, MARGIN = 1, mean)
+t.mean.x <- (mean.curve.x*mean.curve.x)/sum((mean.curve.x*mean.curve.x)*0.01)
+
+mean.curve.y <- apply(curves.y, MARGIN = 1, mean)
+t.mean.y <- (mean.curve.y*mean.curve.y)/sum((mean.curve.y*mean.curve.y)*0.01)
+
+curves <- append(curves.x, curves.y)
+
+#Build Statistic
+KL <- sum((log(t.mean.x)-log(t.mean.y))*t.mean.x)*0.01
+KL.star <- rep(0, B)
+
+for (i in 1:B){
+#Create bootstrap samples and mean curves
+index <- sample(1:n, n, rep = T)
+x.star <- curves[index[1:n1]]
+y.star <- curves[index[n1:n]]
+x.star.mean <- apply(data.frame(x.star), MARGIN = 1, mean)
+y.star.mean <- apply(data.frame(y.star), MARGIN = 1, mean)
+t.x.star <- (x.star.mean*x.star.mean)/sum((x.star.mean*x.star.mean)*0.01)
+t.y.star <- (y.star.mean*y.star.mean)/sum((y.star.mean*y.star.mean)*0.01)
+
+#Compute test statistic star
+KL.star[i] <- sum((log(t.x.star)-log(t.y.star))*t.x.star)*0.01
+}
+#Find p-value
+p.KL <- (sum(KL.star > KL)+1)/(B+1)
+p.KL
+}
+
+Bootstrap_Hellinger <- function(curves.x, curves.y, B, R, n1, n2){
+n <- n1+n2
+#Mean Curve and Transformation
+mean.curve.x <- apply(curves.x, MARGIN = 1, mean)
+t.mean.x <- (mean.curve.x*mean.curve.x)/sum((mean.curve.x*mean.curve.x)*0.01)
+
+mean.curve.y <- apply(curves.y, MARGIN = 1, mean)
+t.mean.y <- (mean.curve.y*mean.curve.y)/sum((mean.curve.y*mean.curve.y)*0.01)
+
+curves <- append(curves.x, curves.y)
+
+#Build Statistic
+Hel <- sqrt(sum((sqrt(t.mean.x)-sqrt(t.mean.y))^2)*0.01)
+Hel.star <- rep(0, B)
+
+for (i in 1:B){
+#Create bootstrap samples and mean curves
+index <- sample(1:n, n, rep = T)
+x.star <- curves[index[1:n1]]
+y.star <- curves[index[n1:n]]
+x.star.mean <- apply(data.frame(x.star), MARGIN = 1, mean)
+y.star.mean <- apply(data.frame(y.star), MARGIN = 1, mean)
+t.x.star <- (x.star.mean*x.star.mean)/sum((x.star.mean*x.star.mean)*0.01)
+t.y.star <- (y.star.mean*y.star.mean)/sum((y.star.mean*y.star.mean)*0.01)
+
+#Compute test statistic star
+Hel.star[i] <- sqrt(sum((sqrt(t.x.star)-sqrt(t.y.star))^2)*0.01)
+}
+#Find p-value
+p.Hel <- (sum(Hel.star > Hel)+1)/(B+1)
+p.Hel
+}
+
+Bootstrap_Affinity <- function(curves.x, curves.y, B, R, n1, n2){
+n <- n1+n2
+#Mean Curve and Transformation
+mean.curve.x <- apply(curves.x, MARGIN = 1, mean)
+t.mean.x <- (mean.curve.x*mean.curve.x)/sum((mean.curve.x*mean.curve.x)*0.01)
+
+mean.curve.y <- apply(curves.y, MARGIN = 1, mean)
+t.mean.y <- (mean.curve.y*mean.curve.y)/sum((mean.curve.y*mean.curve.y)*0.01)
+
+curves <- append(curves.x, curves.y)
+
+#Build Statistic
+Aff <- sum(sqrt(t.mean.x*t.mean.y))*0.01
+Aff.star <- rep(0, B)
+
+for (i in 1:B){
+#Create bootstrap samples and mean curves
+index <- sample(1:n, n, rep = T)
+x.star <- curves[index[1:n1]]
+y.star <- curves[index[n1:n]]
+x.star.mean <- apply(data.frame(x.star), MARGIN = 1, mean)
+y.star.mean <- apply(data.frame(y.star), MARGIN = 1, mean)
+t.x.star <- (x.star.mean*x.star.mean)/sum((x.star.mean*x.star.mean)*0.01)
+t.y.star <- (y.star.mean*y.star.mean)/sum((y.star.mean*y.star.mean)*0.01)
+
+#Compute test statistic star
+Aff.star[i] <- sum(sqrt(t.x.star*t.y.star))*0.01
+}
+#Find p-value
+p.Aff <- (sum(Aff.star < Aff)+1)/(B+1)
+p.Aff
+}
+```
+
+Final Bootstrap Function
+```{r}
+Bootstrap_FDA <- function(method, curves.x, curves.y, B, R, n1, n2){
+  if(method == "L"){
+    Bootstrap_L1(curves.x, curves.y, B, R, n1, n2)
+  }
+  else if(method == "I"){
+    Bootstrap_ISD(curves.x, curves.y, B, R, n1, n2)
+  }
+  else if(method == "K"){
+    Bootstrap_KL(curves.x, curves.y, B, R, n1, n2)
+  }
+  else if(method == "H"){
+    Bootstrap_Hellinger(curves.x, curves.y, B, R, n1, n2)
+  }
+  else if(method == "A"){
+    Bootstrap_Affinity(curves.x, curves.y, B, R, n1, n2)
+  }
+}
+
+```
+
+Scenario 1
+```{r}
+#Defining Variables
+B <- 75
+R <- 100
+n1 <- 50
+n2 <- 50
+lam1 <- 1e-5
+lam2 <- 1e-5
+par2 <- c(4.92, 4.94, 4.96, 4.98, 5.00, 5.02, 5.04, 5.06, 5.08)
+
+#Finding Empirical Rejection Probability
+L1.Rej <- rep(1, length(par2))
+for (p in 1:length(par2)){
+P.L1 <- rep(1, R)
+for (j in 1:R){
+#Generate Curves
+curves.x <- data.frame(matrix(nrow = 100, ncol = n1))
+for (i in 1:n1){
+x <- curve(5, 100)
+x.smooth <- Smoothing(x, lam1)
+curves.x[,i] <- eval.fd(t, x.smooth$fd)
+}
+
+curves.y <- data.frame(matrix(nrow = 100, ncol = n2))
+for (i in 1:n2){
+y <- curve(par2[p], 100)
+y.smooth <- Smoothing(y, lam2)
+curves.y[,i] <- eval.fd(t, y.smooth$fd)
+}
+#Run Bootstrap Test
+p.L1[j] <- Bootstrap_L1(curves.x, curves.y, B, R, n1, n2)
+p.ISD[j] <- Bootstrap_ISD(curves.x, curves.y, B, R, n1, n2)
+p.Hel[j]<-Bootstrap_Hellinger(curves.x, curves.y, B, R, n1, n2)
+p.KL[j] <- Bootstrap_KL(curves.x, curves.y, B, R, n1, n2)
+p.Aff[j] <- Bootstrap_Affinity(curves.x, curves.y, B, R, n1, n2)
+}
+#Empirical Rejection
+L1.prob <- sum(p.L1<0.05)/R
+ISD.prob <- sum(p.ISD<0.05)/R
+Hellinger.prob <- sum(p.Hel<0.05)/R
+KL.prob <- sum(p.KL<0.05)/R
+Affinity.prob <- sum(p.Aff<0.05)/R
+
+L1.Rej[p] <- L1.prob
+ISD.Rej[p] <- ISD.prob
+Hellinger.Rej[p] <- Hellinger.prob
+KL.Rej[p] <- KL.prob
+Affinity.rej[p] <- Affinity.prob
+}
+```
+
+Scenario 1 Results
+```{r}
+params <- c(4.92, 4.94, 4.96, 4.98, 5, 5.02, 5.04, 5.06, 5.08)
+L1_1 <- cbind(params, L1.Rej)
+ISD_1 <- cbind(params, ISD.Rej)
+KL_1 <- cbind(params, KL.Rej)
+Hel_1 <- cbind(params, Hellinger.Rej)
+Aff_1 <- cbind(params, Affinity.Rej)
+```
+
+Scenario 1 Plotting
+```{r}
+#Power Function Plot 1
+pdf("/Users/liamb/School/Western/4th Year - 1st Semester/4999 (Statistics)/scen_1_1.pdf")
+plot(L1_1, xlab = "Parameter", ylab = "Power Function", pch = 21, type = "b", main = "Scenario 1")
+lines(ISD_1, type = "b", pch = 15)
+legend("top",  c("L1", "ISD"), cex = 0.7, pch = c(21,15))
+dev.off()
+
+#Power Function Plot 2
+pdf("/Users/liamb/School/Western/4th Year - 1st Semester/4999 (Statistics)/scen_1_2.pdf")
+plot(KL_1, xlab = "Parameter", ylab = "Power Function", pch = 21, type = "b")
+lines(Hel_1, type = "b", pch = 15)
+legend("top",  c("Kullback-Leibler", "Hellinger"), cex = 0.7, pch = c(21,15))
+dev.off()
+```
+
+Scenario 2
+```{r}
+#Defining Variables
+B <- 75
+R <- 100
+n1 <- 50
+n2 <- 100
+lam1 <- 1e-5
+lam2 <- 1e-5
+par2 <- c(4.92, 4.94, 4.96, 4.98, 5.00, 5.02, 5.04, 5.06, 5.08)
+
+#Finding Empirical Rejection Probability
+L1.Rej <- rep(1, length(par2))
+for (p in 1:length(par2)){
+P.L1 <- rep(1, R)
+for (j in 1:R){
+#Generate Curves
+curves.x <- data.frame(matrix(nrow = 100, ncol = n1))
+for (i in 1:n1){
+x <- curve(5, 100)
+x.smooth <- Smoothing(x, lam1)
+curves.x[,i] <- eval.fd(t, x.smooth$fd)
+}
+
+curves.y <- data.frame(matrix(nrow = 100, ncol = n2))
+for (i in 1:n2){
+y <- curve(par2[p], 100)
+y.smooth <- Smoothing(y, lam2)
+curves.y[,i] <- eval.fd(t, y.smooth$fd)
+}
+#Run Bootstrap Test
+p.L1[j] <- Bootstrap_L1(curves.x, curves.y, B, R, n1, n2)
+p.ISD[j] <- Bootstrap_ISD(curves.x, curves.y, B, R, n1, n2)
+p.Hel[j]<-Bootstrap_Hellinger(curves.x, curves.y, B, R, n1, n2)
+p.KL[j] <- Bootstrap_KL(curves.x, curves.y, B, R, n1, n2)
+p.Aff[j] <- Bootstrap_Affinity(curves.x, curves.y, B, R, n1, n2)
+}
+#Empirical Rejection
+L1.prob <- sum(p.L1<0.05)/R
+ISD.prob <- sum(p.ISD<0.05)/R
+Hellinger.prob <- sum(p.Hel<0.05)/R
+KL.prob <- sum(p.KL<0.05)/R
+Affinity.prob <- sum(p.Aff<0.05)/R
+
+L1.Rej[p] <- L1.prob
+ISD.Rej[p] <- ISD.prob
+Hellinger.Rej[p] <- Hellinger.prob
+KL.Rej[p] <- KL.prob
+Affinity.rej[p] <- Affinity.prob
+}
+
+```
+
+Scenario 2 Results
+```{r}
+params <- c(4.92, 4.94, 4.96, 4.98, 5, 5.02, 5.04, 5.06, 5.08)
+L1_2 <- cbind(params, L1.Rej)
+ISD_2 <- cbind(params, ISD.Rej)
+KL_2 <- cbind(params, KL.Rej)
+Hel_2 <- cbind(params, Hellinger.Rej)
+Aff_2 <- cbind(params, Affinity.Rej)
+```
+
+Scenario 2 Plotting
+```{r}
+#Power Function Plot 1
+pdf("/Users/liamb/School/Western/4th Year - 1st Semester/4999 (Statistics)/scen_2_1.pdf")
+plot(L1_2, xlab = "Parameter", ylab = "Power Function", pch = 21, type = "b", main = "Scenario 2")
+lines(ISD_2, type = "b", pch = 15)
+legend("top",  c("L1", "ISD"), cex = 0.7, pch = c(21,15))
+dev.off()
+
+#Power Function Plot 2
+pdf("/Users/liamb/School/Western/4th Year - 1st Semester/4999 (Statistics)/scen_2_2.pdf")
+plot(KL_2, xlab = "Parameter", ylab = "Power Function", pch = 21, type = "b")
+lines(Hel_2, type = "b", pch = 15)
+legend("top",  c("Kullback-Leibler", "Hellinger"), cex = 0.7, pch = c(21,15))
+dev.off()
+```
+
+Scenario 3 (Function 1)
+```{r}
+#Defining Variables
+B <- 75
+R <- 100
+n1 <- 200
+n2 <- 200
+lam1 <- 1e-5
+lam2 <- 1e-5
+par2 <- c(4.92, 4.94, 4.96, 4.98, 5.00, 5.02, 5.04, 5.06, 5.08)
+
+#Finding Empirical Rejection Probability
+L1.Rej <- rep(1, length(par2))
+for (p in 1:length(par2)){
+P.L1 <- rep(1, R)
+for (j in 1:R){
+#Generate Curves
+curves.x <- data.frame(matrix(nrow = 100, ncol = n1))
+for (i in 1:n1){
+x <- curve(5, 100)
+x.smooth <- Smoothing(x, lam1)
+curves.x[,i] <- eval.fd(t, x.smooth$fd)
+}
+
+curves.y <- data.frame(matrix(nrow = 100, ncol = n2))
+for (i in 1:n2){
+y <- curve(par2[p], 100)
+y.smooth <- Smoothing(y, lam2)
+curves.y[,i] <- eval.fd(t, y.smooth$fd)
+}
+#Run Bootstrap Test
+p.L1[j] <- Bootstrap_L1(curves.x, curves.y, B, R, n1, n2)
+p.ISD[j] <- Bootstrap_ISD(curves.x, curves.y, B, R, n1, n2)
+p.Hel[j]<-Bootstrap_Hellinger(curves.x, curves.y, B, R, n1, n2)
+p.KL[j] <- Bootstrap_KL(curves.x, curves.y, B, R, n1, n2)
+p.Aff[j] <- Bootstrap_Affinity(curves.x, curves.y, B, R, n1, n2)
+}
+#Empirical Rejection
+L1.prob <- sum(p.L1<0.05)/R
+ISD.prob <- sum(p.ISD<0.05)/R
+Hellinger.prob <- sum(p.Hel<0.05)/R
+KL.prob <- sum(p.KL<0.05)/R
+Affinity.prob <- sum(p.Aff<0.05)/R
+
+L1.Rej[p] <- L1.prob
+ISD.Rej[p] <- ISD.prob
+Hellinger.Rej[p] <- Hellinger.prob
+KL.Rej[p] <- KL.prob
+Affinity.rej[p] <- Affinity.prob
+}
+
+```
+
+Scenario 3 Results (Function 1)
+```{r}
+params <- c(4.92, 4.94, 4.96, 4.98, 5, 5.02, 5.04, 5.06, 5.08)
+L1_3 <- cbind(params, L1.Rej)
+ISD_3 <- cbind(params, ISD.Rej)
+KL_3 <- cbind(params, KL.Rej)
+Hel_3 <- cbind(params, Hellinger.Rej)
+Aff_3 <- cbind(params, Affinity.Rej)
+```
+
+Scenario 3 Plotting (Function 1)
+```{r}
+#Power Function Plot 1
+pdf("/Users/liamb/School/Western/4th Year - 1st Semester/4999 (Statistics)/scen_3_1.pdf")
+plot(L1_3, xlab = "Parameter", ylab = "Power Function", pch = 21, type = "b", main = "Scenario 3")
+lines(ISD_3, type = "b", pch = 15)
+legend("top",  c("L1", "ISD"), cex = 0.7, pch = c(21,15))
+dev.off()
+
+#Power Function Plot 2
+pdf("/Users/liamb/School/Western/4th Year - 1st Semester/4999 (Statistics)/scen_3_2.pdf")
+plot(KL_3, xlab = "Parameter", ylab = "Power Function", pch = 21, type = "b")
+lines(Hel_3, type = "b", pch = 15)
+legend("top",  c("Kullback-Leibler", "Hellinger"), cex = 0.7, pch = c(21,15))
+dev.off()
+```
+
+Scenario 4(Function 1)
+```{r}
+#Defining Variables
+B <- 75
+R <- 100
+n1 <- 200
+n2 <- 200
+lam1 <- 1e-5
+lam2 <- 1e-5
+par2 <- c(4.92, 4.94, 4.96, 4.98, 5.00, 5.02, 5.04, 5.06, 5.08)
+
+#Finding Empirical Rejection Probability
+L1.Rej <- rep(1, length(par2))
+for (p in 1:length(par2)){
+P.L1 <- rep(1, R)
+for (j in 1:R){
+#Generate Curves
+curves.x <- data.frame(matrix(nrow = 100, ncol = n1))
+for (i in 1:n1){
+x <- curve_cov(5, 100)
+x.smooth <- Smoothing(x, lam1)
+curves.x[,i] <- eval.fd(t, x.smooth$fd)
+}
+
+curves.y <- data.frame(matrix(nrow = 100, ncol = n2))
+for (i in 1:n2){
+y <- curve_cov(par2[p], 100)
+y.smooth <- Smoothing(y, lam2)
+curves.y[,i] <- eval.fd(t, y.smooth$fd)
+}
+#Run Bootstrap Test
+p.L1[j] <- Bootstrap_L1(curves.x, curves.y, B, R, n1, n2)
+p.ISD[j] <- Bootstrap_ISD(curves.x, curves.y, B, R, n1, n2)
+p.Hel[j]<-Bootstrap_Hellinger(curves.x, curves.y, B, R, n1, n2)
+p.KL[j] <- Bootstrap_KL(curves.x, curves.y, B, R, n1, n2)
+p.Aff[j] <- Bootstrap_Affinity(curves.x, curves.y, B, R, n1, n2)
+}
+#Empirical Rejection
+L1.prob <- sum(p.L1<0.05)/R
+ISD.prob <- sum(p.ISD<0.05)/R
+Hellinger.prob <- sum(p.Hel<0.05)/R
+KL.prob <- sum(p.KL<0.05)/R
+Affinity.prob <- sum(p.Aff<0.05)/R
+
+L1.Rej[p] <- L1.prob
+ISD.Rej[p] <- ISD.prob
+Hellinger.Rej[p] <- Hellinger.prob
+KL.Rej[p] <- KL.prob
+Affinity.rej[p] <- Affinity.prob
+}
+```
+
+Scenario 4 Results (Function 1)
+```{r}
+params <- c(4.92, 4.94, 4.96, 4.98, 5, 5.02, 5.04, 5.06, 5.08)
+L1_4 <- cbind(params, L1.Rej)
+ISD_4 <- cbind(params, ISD.Rej)
+KL_4 <- cbind(params, KL.Rej)
+Hel_4 <- cbind(params, Hellinger.Rej)
+Aff_4 <- cbind(params, Affinity.Rej)
+```
+
+Scenario 4 Plotting (Function 1)
+```{r}
+#Plot 1
+pdf("/Users/liamb/School/Western/4th Year - 1st Semester/4999 (Statistics)/scen_4_1.pdf")
+plot(L1_4, xlab = "Parameter", ylab = "Power Function", pch = 21, type = "b", main = "Scenario 4")
+lines(ISD_4, type = "b", pch = 15)
+legend("top",  c("L1", "ISD"), cex = 0.7, pch = c(21,15))
+dev.off()
+
+#Plot 2
+pdf("/Users/liamb/School/Western/4th Year - 1st Semester/4999 (Statistics)/scen_4_2.pdf")
+plot(KL_4, xlab = "Parameter", ylab = "Power Function", pch = 21, type = "b")
+lines(Hel_4, type = "b", pch = 15)
+legend("top",  c("Kullback-Leibler", "Hellinger"), cex = 0.7, pch = c(21,15))
+dev.off()
+```
+
+Scenario 3 (Function 2)
+```{r}
+#Defining Variables
+B <- 75
+R <- 100
+n1 <- 200
+n2 <- 200
+lam1 <- 1e-4
+lam2 <- 1e-4
+par2 <- c(1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9)
+
+#Finding Empirical Rejection Probability
+L1.Rej <- rep(1, length(par2))
+for (p in 1:length(par2)){
+P.L1 <- rep(1, R)
+for (j in 1:R){
+#Generate Curves
+curves.x <- data.frame(matrix(nrow = 100, ncol = n1))
+for (i in 1:n1){
+x <- curve_2(1.5, 100)
+x.smooth <- Smoothing(x, lam1)
+curves.x[,i] <- eval.fd(t, x.smooth$fd)
+}
+
+curves.y <- data.frame(matrix(nrow = 100, ncol = n2))
+for (i in 1:n2){
+y <- curve_2(par2[p], 100)
+y.smooth <- Smoothing(y, lam2)
+curves.y[,i] <- eval.fd(t, y.smooth$fd)
+}
+#Run Bootstrap Test
+p.L1[j] <- Bootstrap_L1(curves.x, curves.y, B, R, n1, n2)
+p.ISD[j] <- Bootstrap_ISD(curves.x, curves.y, B, R, n1, n2)
+p.Hel[j]<-Bootstrap_Hellinger(curves.x, curves.y, B, R, n1, n2)
+p.KL[j] <- Bootstrap_KL(curves.x, curves.y, B, R, n1, n2)
+p.Aff[j] <- Bootstrap_Affinity(curves.x, curves.y, B, R, n1, n2)
+}
+#Empirical Rejection
+L1.prob <- sum(p.L1<0.05)/R
+ISD.prob <- sum(p.ISD<0.05)/R
+Hellinger.prob <- sum(p.Hel<0.05)/R
+KL.prob <- sum(p.KL<0.05)/R
+Affinity.prob <- sum(p.Aff<0.05)/R
+
+L1.Rej[p] <- L1.prob
+ISD.Rej[p] <- ISD.prob
+Hellinger.Rej[p] <- Hellinger.prob
+KL.Rej[p] <- KL.prob
+Affinity.rej[p] <- Affinity.prob
+}
+```
+
+
+Scenario 3 Results (Function 2)
+```{r}
+params <- c(1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9)
+L1_5 <- cbind(params, L1.Rej)
+ISD_5 <- cbind(params, ISD.Rej)
+KL_5 <- cbind(params, KL.Rej)
+Hel_5 <- cbind(params, Hellinger.Rej)
+Aff_5 <- cbind(params, Affinity.Rej)
+```
+
+Scenario 3 Plotting (Function 2)
+```{r}
+#Plot 1
+pdf("/Users/liamb/School/Western/4th Year - 1st Semester/4999 (Statistics)/scen_5_1.pdf")
+plot(L1_5, xlab = "Parameter", ylab = "Power Function", pch = 21, type = "b", main = "Scenario 3")
+lines(ISD_5, type = "b", pch = 15)
+legend("top",  c("L1", "ISD"), cex = 0.7, pch = c(21,15))
+dev.off()
+
+#Plot 2
+pdf("/Users/liamb/School/Western/4th Year - 1st Semester/4999 (Statistics)/scen_5_2.pdf")
+plot(KL_5, xlab = "Parameter", ylab = "Power Function", pch = 21, type = "b")
+lines(Hel_5, type = "b", pch = 15)
+legend("top",  c("Kullback-Leibler", "Hellinger"), cex = 0.7, pch = c(21,15))
+dev.off()
+```
+
+Scenario 4 (Function 2)
+```{r}
+#Defining Variables
+B <- 75
+R <- 100
+n1 <- 200
+n2 <- 200
+lam1 <- 1e-4
+lam2 <- 1e-4
+par2 <- c(1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9)
+
+#Finding Empirical Rejection Probability
+L1.Rej <- rep(1, length(par2))
+for (p in 1:length(par2)){
+P.L1 <- rep(1, R)
+for (j in 1:R){
+#Generate Curves
+curves.x <- data.frame(matrix(nrow = 100, ncol = n1))
+for (i in 1:n1){
+x <- curve_cov_2(1.5, 100)
+x.smooth <- Smoothing(x, lam1)
+curves.x[,i] <- eval.fd(t, x.smooth$fd)
+}
+
+curves.y <- data.frame(matrix(nrow = 100, ncol = n2))
+for (i in 1:n2){
+y <- curve_cov_2(par2[p], 100)
+y.smooth <- Smoothing(y, lam2)
+curves.y[,i] <- eval.fd(t, y.smooth$fd)
+}
+#Run Bootstrap Test
+p.L1[j] <- Bootstrap_L1(curves.x, curves.y, B, R, n1, n2)
+p.ISD[j] <- Bootstrap_ISD(curves.x, curves.y, B, R, n1, n2)
+p.Hel[j]<-Bootstrap_Hellinger(curves.x, curves.y, B, R, n1, n2)
+p.KL[j] <- Bootstrap_KL(curves.x, curves.y, B, R, n1, n2)
+p.Aff[j] <- Bootstrap_Affinity(curves.x, curves.y, B, R, n1, n2)
+}
+#Empirical Rejection
+L1.prob <- sum(p.L1<0.05)/R
+ISD.prob <- sum(p.ISD<0.05)/R
+Hellinger.prob <- sum(p.Hel<0.05)/R
+KL.prob <- sum(p.KL<0.05)/R
+Affinity.prob <- sum(p.Aff<0.05)/R
+
+L1.Rej[p] <- L1.prob
+ISD.Rej[p] <- ISD.prob
+Hellinger.Rej[p] <- Hellinger.prob
+KL.Rej[p] <- KL.prob
+Affinity.rej[p] <- Affinity.prob
+}
+```
+
+Scenario 4 Results (Function 2)
+```{r}
+params <- c(1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9)
+L1_6 <- cbind(params, L1.Rej)
+ISD_6 <- cbind(params, ISD.Rej)
+KL_6 <- cbind(params, KL.Rej)
+Hel_6 <- cbind(params, Hellinger.Rej)
+Aff_6 <- cbind(params, Affinity.Rej)
+```
+
+Scenario 4 Plotting (Function 2)
+```{r}
+#Plot 1
+pdf("/Users/liamb/School/Western/4th Year - 1st Semester/4999 (Statistics)/scen_6_1.pdf")
+plot(L1_6, xlab = "Parameter", ylab = "Power Function", pch = 21, type = "b", main = "Scenario 4")
+lines(ISD_6, type = "b", pch = 15)
+legend("top",  c("L1", "ISD"), cex = 0.7, pch = c(21,15))
+dev.off()
+
+#Plot 2
+pdf("/Users/liamb/School/Western/4th Year - 1st Semester/4999 (Statistics)/scen_6_2.pdf")
+plot(KL_6, xlab = "Parameter", ylab = "Power Function", pch = 21, type = "b")
+lines(Hel_6, type = "b", pch = 15)
+legend("top",  c("Kullback-Leibler", "Hellinger"), cex = 0.7, pch = c(21,15))
+dev.off()
+```
+
+
+Growth Data Application
+```{r}
+#Defining Variables
+n1 <- 54
+n2 <- 39
+t <- 
+n <- n1 + n2
+B <- 100
+
+#Splitting Growth Data into Datasets for boy and girl
+curves.x <- data.frame(matrix(nrow = 31, ncol = n1))
+for (i in 1:n1){
+curves.x[,i] <- growth$hgtf[,i]
+}
+
+curves.y <- data.frame(matrix(nrow = 31, ncol = n2))
+for (i in 1:n2){
+curves.y[,i] <- growth$hgtm[, i]
+}
+
+#Running Test of 2 best statistics
+P_ISD <- Bootstrap_ISD(curves.x, curves.y, B, R, t, n1, n2)
+P_KL <- Bootstrap_KL(curves.x, curves.y, B, R, t, n1, n2)
+P_ISD
+P_KL
+```
