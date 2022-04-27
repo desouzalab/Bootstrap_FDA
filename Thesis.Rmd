@@ -1,5 +1,5 @@
 ---
-title: "Thesis"
+title: "Bootstrap-Based Hypothesis Testing"
 author: "Liam Bullen"
 date: "30/11/2021"
 output: html_document
