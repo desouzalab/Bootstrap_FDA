@@ -18,5 +18,4 @@ written by Liam Bullen, under the supervision of Dr. Camila de Souza, submitted 
 This thesis code is available under Thesis.rmd. The functions used to generate the simulated data and to perform the bootstrap testing can be found, and can be used by any working with functional data.
 
 ## PDF version
-A rendered PDF version of the thesis is avaiable under Thesis.pdf
-```
+A rendered PDF version of the thesis is avaiable under Bootstrap_FDA.pdf
